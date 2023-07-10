@@ -126,7 +126,7 @@ cache.Cleanup()
 
 ## Examples
 
-See the [examples](https://github.com/parMaster/mcache/examples) directory for more examples.
+See the [examples](https://github.com/parMaster/mcache/tree/main/examples) directory for more examples.
 
 ## Contributing
 
