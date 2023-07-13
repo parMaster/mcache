@@ -28,10 +28,15 @@ Import the `mcache` package in your Go code:
 import "github.com/parMaster/mcache"
 ```
 
-Create a new cache instance using the `NewCache` constructor:
+Create a new cache instance using the `NewCache` constructor, and use it to perform cache operations:
 
 ```go
 cache := mcache.NewCache()
+data, err := cache.Get("key")
+if err != nil {
+	data = ExpensiveFunctionCall()
+	cache.Set(key, data, 5*60) // cache data for 5 minutes
+}
 ```
 
 ### Set
@@ -122,6 +127,17 @@ Cleanup expired key-value pairs in the cache. You can call this method periodica
 
 ```go
 cache.Cleanup()
+```
+
+If you want to cleanup expired key-value periodically, you can run the `Cleanup` method in a goroutine with a time interval:
+
+```go
+go func() {
+	for {
+		cache.Cleanup()
+		time.Sleep(1 * time.Minute) // run every minute
+	}
+}()
 ```
 
 ## Examples
