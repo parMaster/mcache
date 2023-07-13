@@ -74,7 +74,36 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		assert.Equal(t, ErrKeyNotFound, err.Error())
 	}
 
+	c.Set("key", "value", 1)
+	time.Sleep(time.Second * 2)
+	err = c.Set("key", "newvalue", 1)
+	assert.NoError(t, err)
+
+	// old value should be rewritten
+	value, err := c.Get("key")
+	assert.NoError(t, err)
+	assert.Equal(t, "newvalue", value)
+
+	err = c.Set("key", "not a newer value", 1)
+	assert.Equal(t, ErrKeyExists, err.Error())
+
+	time.Sleep(time.Second * 2)
+	err = c.Set("key", "even newer value", 1)
+	// key should be silently rewritten
+	assert.NoError(t, err)
+	value, err = c.Get("key")
+	assert.NoError(t, err)
+	assert.Equal(t, "even newer value", value)
+
+	time.Sleep(time.Second * 2)
 	c.Cleanup()
+	// key should be deleted
+	has, err = c.Has("key")
+	assert.False(t, has)
+
+	// del should return error if key doesn't exist
+	err = c.Del("noSuchKey")
+	assert.Error(t, err)
 
 	err = c.Clear()
 	assert.NoError(t, err)

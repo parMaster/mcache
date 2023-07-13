@@ -1,6 +1,6 @@
 # mcache
 
-`mcache` is a simple and thread-safe in-memory cache library for Go.
+`mcache` is a simple, fast, thread-safe in-memory cache library with by-key TTL written in Go.
 
 ## Features
 
@@ -144,9 +144,19 @@ go func() {
 
 See the [examples](https://github.com/parMaster/mcache/tree/main/examples) directory for more examples.
 
-## Benchmarks
+## Tests and Benchmarks
+
+100% test coverage:
+
 ```shell
-Running tool: /usr/local/go/bin/go test -benchmem -run=^$ -coverprofile=/tmp/vscode-gopk5hiw/go-code-cover -bench . github.com/parMaster/mcache
+$ go test -race .
+
+ok      github.com/parMaster/mcache     8.239s  coverage: 100.0% of statements
+```
+Blinding fast and efficient:
+
+```shell
+$ go test -bench . -benchmem
 
 goos: linux
 goarch: amd64
