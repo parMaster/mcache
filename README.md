@@ -144,6 +144,22 @@ go func() {
 
 See the [examples](https://github.com/parMaster/mcache/tree/main/examples) directory for more examples.
 
+## Benchmarks
+```shell
+Running tool: /usr/local/go/bin/go test -benchmem -run=^$ -coverprofile=/tmp/vscode-gopk5hiw/go-code-cover -bench . github.com/parMaster/mcache
+
+goos: linux
+goarch: amd64
+pkg: github.com/parMaster/mcache
+cpu: Intel(R) Core(TM) i5-4308U CPU @ 2.80GHz
+BenchmarkWrite-4   	 1797061	       815.2 ns/op	     247 B/op	       3 allocs/op
+BenchmarkRead-4    	 4516329	       260.7 ns/op	      48 B/op	       3 allocs/op
+BenchmarkRWD-4     	 1761019	       686.6 ns/op	      56 B/op	       6 allocs/op
+PASS
+github.com/parMaster/mcache	coverage: 83.0% of statements
+ok  	github.com/parMaster/mcache	7.190s
+```
+
 ## Contributing
 
 Contributions are welcome! If you find any issues or have suggestions for improvements, please open an issue or submit a pull request.
