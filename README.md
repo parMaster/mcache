@@ -35,7 +35,7 @@ cache := mcache.NewCache()
 data, err := cache.Get("key")
 if err != nil {
 	data = ExpensiveFunctionCall()
-	cache.Set(key, data, 5*60) // cache data for 5 minutes
+	cache.Set("key", data, 5*60) // cache data for 5 minutes
 }
 ```
 
