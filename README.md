@@ -1,5 +1,10 @@
 # mcache
 
+[![codecov](https://codecov.io/gh/parMaster/mcache/branch/main/graph/badge.svg?token=K6685ZN3YS)](https://codecov.io/gh/parMaster/mcache)
+![GitHub](https://img.shields.io/github/license/parMaster/mcache)
+[![Go Report Card](https://goreportcard.com/badge/github.com/parMaster/mcache)](https://goreportcard.com/report/github.com/parMaster/mcache)
+[![Go](https://github.com/parMaster/zoomrs/actions/workflows/go.yml/badge.svg)](https://github.com/parMaster/zoomrs/actions/workflows/go.yml)
+
 `mcache` is a simple, fast, thread-safe in-memory cache library with by-key TTL written in Go.
 
 ## Features
@@ -176,4 +181,4 @@ Contributions are welcome! If you find any issues or have suggestions for improv
 
 ## License
 
-This project is licensed under the [GNU GPLv3](https://choosealicense.com/licenses/gpl-3.0/) license.
+This project is licensed under the [MIT](https://choosealicense.com/licenses/mit/) license.
