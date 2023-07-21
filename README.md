@@ -1,9 +1,4 @@
-# mcache
-
-[![codecov](https://codecov.io/gh/parMaster/mcache/branch/main/graph/badge.svg?token=K6685ZN3YS)](https://codecov.io/gh/parMaster/mcache)
-![GitHub](https://img.shields.io/github/license/parMaster/mcache)
-[![Go Report Card](https://goreportcard.com/badge/github.com/parMaster/mcache)](https://goreportcard.com/report/github.com/parMaster/mcache)
-[![Go](https://github.com/parMaster/zoomrs/actions/workflows/go.yml/badge.svg)](https://github.com/parMaster/zoomrs/actions/workflows/go.yml)
+# mcache [![codecov](https://codecov.io/gh/parMaster/mcache/branch/main/graph/badge.svg?token=K6685ZN3YS)](https://codecov.io/gh/parMaster/mcache) ![GitHub](https://img.shields.io/github/license/parMaster/mcache) [![Go Report Card](https://goreportcard.com/badge/github.com/parMaster/mcache)](https://goreportcard.com/report/github.com/parMaster/mcache) [![Go](https://github.com/parMaster/zoomrs/actions/workflows/go.yml/badge.svg)](https://github.com/parMaster/zoomrs/actions/workflows/go.yml)
 
 `mcache` is a simple, fast, thread-safe in-memory cache library with by-key TTL written in Go.
 
@@ -43,7 +38,11 @@ if err != nil {
 	cache.Set("key", data, 5*60) // cache data for 5 minutes
 }
 ```
+## Examples
 
+See the [examples](https://github.com/parMaster/mcache/tree/main/examples) directory for more examples.
+
+## API Reference
 ### Set
 
 Set a key-value pair in the cache. The key must be a string, and the value can be any type that implements the `interface{}` interface, ttl is int64 value in seconds:
@@ -144,10 +143,6 @@ go func() {
 	}
 }()
 ```
-
-## Examples
-
-See the [examples](https://github.com/parMaster/mcache/tree/main/examples) directory for more examples.
 
 ## Tests and Benchmarks
 
