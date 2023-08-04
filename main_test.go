@@ -100,6 +100,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	// key should be deleted
 	has, err = c.Has("key")
 	assert.False(t, has)
+	assert.Error(t, err)
 
 	// del should return error if key doesn't exist
 	err = c.Del("noSuchKey")
@@ -142,6 +143,26 @@ func TestConcurrentSetAndGet(t *testing.T) {
 	// Wait for all goroutines to finish
 	for i := 0; i < numGoroutines; i++ {
 		<-done
+	}
+}
+
+// TestWithCleanup tests that the cleanup goroutine is working
+func TestWithCleanup(t *testing.T) {
+	cache := NewCache(WithCleanup(1))
+
+	// Set a value with a TTL of 1 second
+	err := cache.Set("key", "value", 1)
+	if err != nil {
+		t.Errorf("Error setting value for key: %s", err)
+	}
+
+	// Wait for 2 seconds
+	time.Sleep(2 * time.Second)
+
+	// Check that the value has been deleted
+	_, err = cache.Get("key")
+	if err == nil {
+		t.Errorf("Expected error getting value for key, but got nil")
 	}
 }
 
