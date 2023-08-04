@@ -133,16 +133,12 @@ Cleanup expired key-value pairs in the cache. You can call this method periodica
 cache.Cleanup()
 ```
 
-If you want to cleanup expired key-value periodically, you can run the `Cleanup` method in a goroutine with a time interval:
+WithCleanup is a functional option to the NewCache constructor that allows you to specify a cleanup interval:
 
 ```go
-go func() {
-	for {
-		cache.Cleanup()
-		time.Sleep(1 * time.Minute) // run every minute
-	}
-}()
+cache := mcache.NewCache(mcache.WithCleanup(60)) // cleanup every 60 seconds
 ```
+It will basically run a Cleanup method in a goroutine with a time interval.
 
 ## Tests and Benchmarks
 
