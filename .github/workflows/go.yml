@@ -3,6 +3,8 @@ name: Go
 on:
   push:
     branches: [ "workflows", "main" ]
+    paths-ignore:
+        - '**/README.md'
   pull_request:
     branches: [ "workflows", "main" ]
 
