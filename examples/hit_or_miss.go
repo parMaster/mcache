@@ -7,7 +7,7 @@ import (
 	"github.com/parMaster/mcache"
 )
 
-func expensive_func() interface{} {
+func expensive_func() string {
 	time.Sleep(1 * time.Second)
 	return "expensive result"
 }
@@ -16,7 +16,7 @@ func demo_hit_or_miss() {
 	fmt.Println("\r\n Hit or Miss:")
 	fmt.Println("------------------------------------------------------------")
 
-	cache := mcache.NewCache()
+	cache := mcache.NewCache[string]()
 	// expensive_func will be called only once
 	// because result will be saved in cache
 	for i := 0; i < 10; i++ {
@@ -27,6 +27,6 @@ func demo_hit_or_miss() {
 			cache.Set("expensive value", v, 0)
 			continue
 		}
-		fmt.Println("cache hit - " + v.(string))
+		fmt.Println("cache hit - " + v)
 	}
 }

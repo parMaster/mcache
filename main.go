@@ -14,14 +14,14 @@ const (
 )
 
 // CacheItem is a struct for cache item
-type CacheItem struct {
-	value      interface{}
-	expiration int64
+type CacheItem[T any] struct {
+	value      T
+	expiration time.Time
 }
 
 // Cache is a struct for cache
-type Cache struct {
-	data map[string]CacheItem
+type Cache[T any] struct {
+	data map[string]CacheItem[T]
 	mx   sync.RWMutex
 }
 
@@ -36,9 +36,9 @@ type Cacher interface {
 }
 
 // NewCache is a constructor for Cache
-func NewCache(options ...func(*Cache)) *Cache {
-	c := &Cache{
-		data: make(map[string]CacheItem),
+func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
+	c := &Cache[T]{
+		data: make(map[string]CacheItem[T]),
 	}
 
 	for _, option := range options {
@@ -53,24 +53,26 @@ func NewCache(options ...func(*Cache)) *Cache {
 // If key already exists, but it's expired, set new value and return nil
 // If key doesn't exist, set new value and return nil
 // If ttl is 0, set value without expiration
-func (c *Cache) Set(key string, value interface{}, ttl int64) error {
+func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
+	var zeroTime time.Time
+
 	c.mx.RLock()
-	d, ok := c.data[key]
+	cached, ok := c.data[key]
 	c.mx.RUnlock()
 	if ok {
-		if d.expiration == 0 || d.expiration > time.Now().Unix() {
+		if cached.expiration == zeroTime || cached.expiration.After(time.Now().Add(ttl)) {
 			return fmt.Errorf(ErrKeyExists)
 		}
 	}
 
-	var expiration int64
+	var expiration time.Time
 
-	if ttl > 0 {
-		expiration = time.Now().Unix() + ttl
+	if ttl > time.Duration(0) {
+		expiration = time.Now().Add(ttl)
 	}
 
 	c.mx.Lock()
-	c.data[key] = CacheItem{
+	c.data[key] = CacheItem[T]{
 		value:      value,
 		expiration: expiration,
 	}
@@ -80,13 +82,14 @@ func (c *Cache) Set(key string, value interface{}, ttl int64) error {
 
 // Get is a method for getting value by key
 // If key doesn't exist, return error
-// If key exists, but it's expired, return error and delete key
+// If key exists, but it's expired, delete key, return zeroa value and error
 // If key exists and it's not expired, return value
-func (c *Cache) Get(key string) (interface{}, error) {
+func (c *Cache[T]) Get(key string) (T, error) {
+	var none T
 
 	_, err := c.Has(key)
 	if err != nil {
-		return nil, err
+		return none, err
 	}
 
 	// safe return?
@@ -100,7 +103,7 @@ func (c *Cache) Get(key string) (interface{}, error) {
 // If key doesn't exist, return false.
 // If key exists, but it's expired, return false and delete key.
 // If key exists and it's not expired, return true.
-func (c *Cache) Has(key string) (bool, error) {
+func (c *Cache[T]) Has(key string) (bool, error) {
 	c.mx.RLock()
 	d, ok := c.data[key]
 	c.mx.RUnlock()
@@ -108,7 +111,8 @@ func (c *Cache) Has(key string) (bool, error) {
 		return false, fmt.Errorf(ErrKeyNotFound)
 	}
 
-	if d.expiration != 0 && d.expiration < time.Now().Unix() {
+	var zeroTime time.Time
+	if d.expiration != zeroTime && d.expiration.Before(time.Now()) {
 		c.mx.Lock()
 		delete(c.data, key)
 		c.mx.Unlock()
@@ -119,7 +123,7 @@ func (c *Cache) Has(key string) (bool, error) {
 }
 
 // Del is a method for deleting key-value pair
-func (c *Cache) Del(key string) error {
+func (c *Cache[T]) Del(key string) error {
 	_, err := c.Has(key)
 	if err != nil {
 		return err
@@ -132,31 +136,32 @@ func (c *Cache) Del(key string) error {
 }
 
 // Clear is a method for clearing cache
-func (c *Cache) Clear() error {
+func (c *Cache[T]) Clear() error {
 	c.mx.Lock()
-	c.data = make(map[string]CacheItem)
+	c.data = make(map[string]CacheItem[T])
 	c.mx.Unlock()
 	return nil
 }
 
 // Cleanup is a method for deleting expired keys
-func (c *Cache) Cleanup() {
+func (c *Cache[T]) Cleanup() {
 	c.mx.Lock()
+	var zeroTime time.Time
 	for k, v := range c.data {
-		if v.expiration != 0 && v.expiration < time.Now().Unix() {
+		if v.expiration != zeroTime && v.expiration.Before(time.Now()) {
 			delete(c.data, k)
 		}
 	}
 	c.mx.Unlock()
 }
 
-// WithCleanup is a functional option for setting interval and starting Cleanup goroutine
-func WithCleanup(ttl int64) func(*Cache) {
-	return func(c *Cache) {
+// WithCleanup is a functional option for setting interval to run Cleanup goroutine
+func WithCleanup[T any](ttl time.Duration) func(*Cache[T]) {
+	return func(c *Cache[T]) {
 		go func() {
 			for {
 				c.Cleanup()
-				time.Sleep(time.Duration(ttl) * time.Second)
+				time.Sleep(ttl)
 			}
 		}()
 	}

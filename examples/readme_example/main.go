@@ -2,23 +2,24 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/parMaster/mcache"
 )
 
 func main() {
 
-	cache := mcache.NewCache()
+	cache := mcache.NewCache[string]()
 
-	cache.Set("key", "value", 5*60) // set value with expiration in 5 minutes
+	cache.Set("key", "value", time.Minute*5) // set value with expiration in 5 minutes
 
 	v, err := cache.Get("key")
 	if err != nil {
 		// either error can be checked
 		fmt.Println(err)
 	}
-	if v != nil {
-		// or value can be checked for nil
+	if v != "" {
+		// or value can be checked for "empty" type value
 		fmt.Println("key =", v)
 	}
 

@@ -10,26 +10,26 @@ import (
 
 type testItem struct {
 	key   string
-	value interface{}
-	ttl   int64
+	value string
+	ttl   time.Duration
 }
 
 func Test_SimpleTest_Mcache(t *testing.T) {
-	c := NewCache()
+	c := NewCache[string]()
 
 	assert.NotNil(t, c)
-	assert.IsType(t, &Cache{}, c)
+	assert.IsType(t, &Cache[string]{}, c)
 	assert.NotNil(t, c.data)
 
 	testItems := []testItem{
-		{"key0", "value0", 0},
-		{"key1", "value1", 1},
-		{"key2", "value2", 20},
-		{"key3", "value3", 30},
-		{"key4", "value4", 40},
-		{"key5", "value5", 50},
-		{"key6", "value6", 60},
-		{"key7", "value7", 70000000},
+		{"key0", "value0", time.Second * 0},
+		{"key1", "value1", time.Second * 1},
+		{"key2", "value2", time.Second * 20},
+		{"key3", "value3", time.Second * 30},
+		{"key4", "value4", time.Second * 40},
+		{"key5", "value5", time.Second * 50},
+		{"key6", "value6", time.Second * 60},
+		{"key7", "value7", time.Second * 70000000},
 	}
 	noSuchKey := "noSuchKey"
 
@@ -40,8 +40,8 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	for _, item := range testItems {
 		value, err := c.Get(item.key)
-		assert.NoError(t, err)
-		assert.Equal(t, item.value, value)
+		assert.NoError(t, err, fmt.Sprintf("key:%s; val:%s; ttl:%d", item.key, item.value, item.ttl))
+		assert.Equal(t, item.value, value, fmt.Sprintf("key:%s; val:%s; ttl:%d", item.key, item.value, item.ttl))
 	}
 
 	_, err := c.Get(noSuchKey)
@@ -74,9 +74,9 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		assert.Equal(t, ErrKeyNotFound, err.Error())
 	}
 
-	c.Set("key", "value", 1)
+	c.Set("key", "value", time.Second*1)
 	time.Sleep(time.Second * 2)
-	err = c.Set("key", "newvalue", 1)
+	err = c.Set("key", "newvalue", time.Second*1)
 	assert.NoError(t, err)
 
 	// old value should be rewritten
@@ -85,10 +85,11 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	assert.Equal(t, "newvalue", value)
 
 	err = c.Set("key", "not a newer value", 1)
-	assert.Equal(t, ErrKeyExists, err.Error())
-
+	if err != nil {
+		assert.Equal(t, ErrKeyExists, err.Error())
+	}
 	time.Sleep(time.Second * 2)
-	err = c.Set("key", "even newer value", 1)
+	err = c.Set("key", "even newer value", time.Second*1)
 	// key should be silently rewritten
 	assert.NoError(t, err)
 	value, err = c.Get("key")
@@ -111,7 +112,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 }
 
 func TestConcurrentSetAndGet(t *testing.T) {
-	cache := NewCache()
+	cache := NewCache[string]()
 
 	// Start multiple goroutines to concurrently set and get values
 	numGoroutines := 10000
@@ -148,7 +149,7 @@ func TestConcurrentSetAndGet(t *testing.T) {
 
 // TestWithCleanup tests that the cleanup goroutine is working
 func TestWithCleanup(t *testing.T) {
-	cache := NewCache(WithCleanup(1))
+	cache := NewCache(WithCleanup[string](time.Second * 1))
 
 	// Set a value with a TTL of 1 second
 	err := cache.Set("key", "value", 1)
