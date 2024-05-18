@@ -21,8 +21,7 @@ type CacheItem[T any] struct {
 
 // Cache is a struct for cache
 type Cache[T any] struct {
-	data map[string]CacheItem[T]
-	mx   sync.RWMutex
+	sync.Map
 }
 
 // Cacher is an interface for cache
@@ -38,7 +37,7 @@ type Cacher interface {
 // NewCache is a constructor for Cache
 func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 	c := &Cache[T]{
-		data: make(map[string]CacheItem[T]),
+		sync.Map{},
 	}
 
 	for _, option := range options {
@@ -56,11 +55,11 @@ func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 	var zeroTime time.Time
 
-	c.mx.RLock()
-	cached, ok := c.data[key]
-	c.mx.RUnlock()
+	cachedItem, ok := c.Load(key)
 	if ok {
+		cached := cachedItem.(CacheItem[T])
 		if cached.expiration == zeroTime || cached.expiration.After(time.Now().Add(ttl)) {
+			c.Delete(key)
 			return fmt.Errorf(ErrKeyExists)
 		}
 	}
@@ -71,12 +70,11 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 		expiration = time.Now().Add(ttl)
 	}
 
-	c.mx.Lock()
-	c.data[key] = CacheItem[T]{
+	c.Store(key, CacheItem[T]{
 		value:      value,
 		expiration: expiration,
-	}
-	c.mx.Unlock()
+	})
+
 	return nil
 }
 
@@ -87,16 +85,13 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 func (c *Cache[T]) Get(key string) (T, error) {
 	var none T
 
-	_, err := c.Has(key)
-	if err != nil {
-		return none, err
+	cachedItem, ok := c.Load(key)
+	if !ok {
+		return none, fmt.Errorf(ErrKeyNotFound)
 	}
+	cached := cachedItem.(CacheItem[T])
 
-	// safe return?
-	c.mx.RLock()
-	defer c.mx.RUnlock()
-
-	return c.data[key].value, nil
+	return cached.value, nil
 }
 
 // Has is a method for checking if key exists.
@@ -104,18 +99,15 @@ func (c *Cache[T]) Get(key string) (T, error) {
 // If key exists, but it's expired, return false and delete key.
 // If key exists and it's not expired, return true.
 func (c *Cache[T]) Has(key string) (bool, error) {
-	c.mx.RLock()
-	d, ok := c.data[key]
-	c.mx.RUnlock()
+	cachedItem, ok := c.Load(key)
 	if !ok {
 		return false, fmt.Errorf(ErrKeyNotFound)
 	}
+	cached := cachedItem.(CacheItem[T])
 
 	var zeroTime time.Time
-	if d.expiration != zeroTime && d.expiration.Before(time.Now()) {
-		c.mx.Lock()
-		delete(c.data, key)
-		c.mx.Unlock()
+	if cached.expiration != zeroTime && cached.expiration.Before(time.Now()) {
+		c.Delete(key)
 		return false, fmt.Errorf(ErrExpired)
 	}
 
@@ -129,30 +121,26 @@ func (c *Cache[T]) Del(key string) error {
 		return err
 	}
 
-	c.mx.Lock()
-	delete(c.data, key)
-	c.mx.Unlock()
+	c.Delete(key)
 	return nil
 }
 
 // Clear is a method for clearing cache
 func (c *Cache[T]) Clear() error {
-	c.mx.Lock()
-	c.data = make(map[string]CacheItem[T])
-	c.mx.Unlock()
+	c.Map = sync.Map{}
 	return nil
 }
 
 // Cleanup is a method for deleting expired keys
 func (c *Cache[T]) Cleanup() {
-	c.mx.Lock()
 	var zeroTime time.Time
-	for k, v := range c.data {
-		if v.expiration != zeroTime && v.expiration.Before(time.Now()) {
-			delete(c.data, k)
+	c.Range(func(key, value interface{}) bool {
+		cached := value.(CacheItem[T])
+		if cached.expiration != zeroTime && cached.expiration.Before(time.Now()) {
+			c.Delete(key)
 		}
-	}
-	c.mx.Unlock()
+		return true
+	})
 }
 
 // WithCleanup is a functional option for setting interval to run Cleanup goroutine
