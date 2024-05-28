@@ -26,9 +26,9 @@ type Cache[T any] struct {
 }
 
 // Cacher is an interface for cache
-type Cacher interface {
-	Set(key string, value interface{}, ttl int64) error
-	Get(key string) (interface{}, error)
+type Cacher[T any] interface {
+	Set(key string, value T, ttl time.Duration) error
+	Get(key string) (T, error)
 	Has(key string) (bool, error)
 	Del(key string) error
 	Cleanup()
