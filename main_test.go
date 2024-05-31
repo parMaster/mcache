@@ -21,7 +21,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	assert.IsType(t, &Cache[string]{}, c)
 
 	testItems := []testItem{
-		{"key0", "value0", time.Second * 0},
+		{"key0", "value0", time.Duration(0)},
 		{"key1", "value1", time.Second * 1},
 		{"key2", "value2", time.Second * 20},
 		{"key3", "value3", time.Second * 30},

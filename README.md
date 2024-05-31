@@ -45,10 +45,10 @@ See the [examples](https://github.com/parMaster/mcache/tree/main/examples) direc
 ## API Reference
 ### Set
 
-Set a key-value pair in the cache. The key must be a string, and the value can be any type, ttl is int64 value in seconds:
+Set a key-value pair in the cache. The key must be a `string`, value type defined during cache creation, ttl is `time.Duration` type. If ttl is 0, the key-value pair will not expire.:
 
 ```go
-err := cache.Set("key", "value", 0)
+err := cache.Set("key", "value", time.Duration(0))
 if err != nil {
     // handle error
 }
@@ -131,12 +131,12 @@ Cleanup expired key-value pairs in the cache. You can call this method periodica
 cache.Cleanup()
 ```
 
-WithCleanup is a functional option to the NewCache constructor that allows you to specify a cleanup interval:
+`WithCleanup` is a functional option to the `NewCache` constructor that allows you to specify a cleanup interval:
 
 ```go
 cache := mcache.NewCache(mcache.WithCleanup[string](time.Minute)) // cleanup every 60 seconds
 ```
-It will basically run a Cleanup method in a goroutine with a time interval.
+It will basically run a `Cleanup` method in a goroutine with a time interval.
 
 ## Tests and Benchmarks
 
