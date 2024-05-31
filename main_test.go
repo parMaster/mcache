@@ -15,8 +15,7 @@ type testItem struct {
 }
 
 func Test_SimpleTest_Mcache(t *testing.T) {
-	var c Cacher[string] // linter:ignore S1021
-	c = NewCache[string]()
+	var c Cacher[string] = NewCache[string]()
 
 	assert.NotNil(t, c)
 	assert.IsType(t, &Cache[string]{}, c)
@@ -46,7 +45,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	_, err := c.Get(noSuchKey)
 	assert.Error(t, err)
-	assert.Equal(t, ErrKeyNotFound, err.Error())
+	assert.ErrorIs(t, ErrKeyNotFound, err)
 
 	for _, item := range testItems {
 		has, err := c.Has(item.key)
@@ -58,7 +57,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	has, err := c.Has(testItems[1].key)
 	assert.Error(t, err)
-	assert.Equal(t, ErrExpired, err.Error())
+	assert.ErrorIs(t, ErrExpired, err)
 	assert.False(t, has)
 
 	testItems = append(testItems[2:], testItems[0])
@@ -71,7 +70,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		has, err := c.Has(item.key)
 		assert.False(t, has)
 		assert.Error(t, err)
-		assert.Equal(t, ErrKeyNotFound, err.Error())
+		assert.ErrorIs(t, ErrKeyNotFound, err)
 	}
 
 	c.Set("key", "value", time.Second*1)
@@ -86,7 +85,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	err = c.Set("key", "not a newer value", 1)
 	if err != nil {
-		assert.Equal(t, ErrKeyExists, err.Error())
+		assert.ErrorIs(t, ErrKeyExists, err)
 	}
 	time.Sleep(time.Second * 2)
 	err = c.Set("key", "even newer value", time.Second*1)

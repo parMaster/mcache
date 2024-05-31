@@ -1,16 +1,16 @@
 package mcache
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 )
 
 // Errors for cache
-const (
-	ErrKeyNotFound = "key not found"
-	ErrKeyExists   = "key already exists"
-	ErrExpired     = "key expired"
+var (
+	ErrKeyNotFound = errors.New("key not found")
+	ErrKeyExists   = errors.New("key already exists")
+	ErrExpired     = errors.New("key expired")
 )
 
 // CacheItem is a struct for cache item
@@ -48,20 +48,18 @@ func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 	return c
 }
 
-// Set is a method for setting key-value pair
-// If key already exists, and it's not expired, return error
-// If key already exists, but it's expired, set new value and return nil
-// If key doesn't exist, set new value and return nil
+// Set is a method for setting key-value pair.
+// If key already exists, and it's not expired, return error.
+// If key already exists, but it's expired, set new value and return nil.
+// If key doesn't exist, set new value and return nil.
 // If ttl is 0, set value without expiration
 func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
-	var zeroTime time.Time
-
 	c.mx.RLock()
 	cached, ok := c.data[key]
 	c.mx.RUnlock()
 	if ok {
-		if cached.expiration == zeroTime || cached.expiration.After(time.Now().Add(ttl)) {
-			return fmt.Errorf(ErrKeyExists)
+		if cached.expiration.IsZero() || cached.expiration.After(time.Now().Add(ttl)) {
+			return ErrKeyExists
 		}
 	}
 
@@ -80,9 +78,9 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 	return nil
 }
 
-// Get is a method for getting value by key
-// If key doesn't exist, return error
-// If key exists, but it's expired, delete key, return zeroa value and error
+// Get is a method for getting value by key.
+// If key doesn't exist, return error.
+// If key exists, but it's expired, delete key, return zero value and error.
 // If key exists and it's not expired, return value
 func (c *Cache[T]) Get(key string) (T, error) {
 	var none T
@@ -99,30 +97,29 @@ func (c *Cache[T]) Get(key string) (T, error) {
 	return c.data[key].value, nil
 }
 
-// Has is a method for checking if key exists.
+// Has checks if key exists and if it's expired.
 // If key doesn't exist, return false.
 // If key exists, but it's expired, return false and delete key.
-// If key exists and it's not expired, return true.
+// If key exists and it's not expired, return true
 func (c *Cache[T]) Has(key string) (bool, error) {
 	c.mx.RLock()
 	d, ok := c.data[key]
 	c.mx.RUnlock()
 	if !ok {
-		return false, fmt.Errorf(ErrKeyNotFound)
+		return false, ErrKeyNotFound
 	}
 
-	var zeroTime time.Time
-	if d.expiration != zeroTime && d.expiration.Before(time.Now()) {
+	if !d.expiration.IsZero() && d.expiration.Before(time.Now()) {
 		c.mx.Lock()
 		delete(c.data, key)
 		c.mx.Unlock()
-		return false, fmt.Errorf(ErrExpired)
+		return false, ErrExpired
 	}
 
 	return true, nil
 }
 
-// Del is a method for deleting key-value pair
+// Del deletes a key-value pair
 func (c *Cache[T]) Del(key string) error {
 	_, err := c.Has(key)
 	if err != nil {
@@ -135,7 +132,7 @@ func (c *Cache[T]) Del(key string) error {
 	return nil
 }
 
-// Clear is a method for clearing cache
+// Clears cache by replacing it with a clean one
 func (c *Cache[T]) Clear() error {
 	c.mx.Lock()
 	c.data = make(map[string]CacheItem[T])
@@ -143,12 +140,12 @@ func (c *Cache[T]) Clear() error {
 	return nil
 }
 
-// Cleanup is a method for deleting expired keys
+// Cleanup deletes expired keys from cache
 func (c *Cache[T]) Cleanup() {
+	now := time.Now()
 	c.mx.Lock()
-	var zeroTime time.Time
 	for k, v := range c.data {
-		if v.expiration != zeroTime && v.expiration.Before(time.Now()) {
+		if !v.expiration.IsZero() && v.expiration.Before(now) {
 			delete(c.data, k)
 		}
 	}

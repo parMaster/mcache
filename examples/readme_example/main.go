@@ -16,7 +16,7 @@ func main() {
 	v, err := cache.Get("key")
 	if err != nil {
 		// either error can be checked
-		fmt.Println(err)
+		fmt.Printf("Error: %v\n", err)
 	}
 	if v != "" {
 		// or value can be checked for "empty" type value
@@ -29,7 +29,7 @@ func main() {
 		// possible errors:
 		// mcache.ErrKeyNotFound - key doesn't exist
 		// mcache.ErrExpired     - key expired
-		fmt.Println(err)
+		fmt.Printf("Error: %v\n", err)
 	}
 	if exists {
 		fmt.Println("key exists")
