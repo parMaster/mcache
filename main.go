@@ -19,6 +19,13 @@ type CacheItem[T any] struct {
 	expiration time.Time
 }
 
+func (cacheItem CacheItem[T]) expired() bool {
+	if !cacheItem.expiration.IsZero() && cacheItem.expiration.Before(time.Now()) {
+		return true
+	}
+	return false
+}
+
 // Cache is a struct for cache
 type Cache[T any] struct {
 	data map[string]CacheItem[T]
@@ -54,11 +61,11 @@ func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 // If key doesn't exist, set new value and return nil.
 // If ttl is 0, set value without expiration
 func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
-	c.mx.RLock()
+	c.mx.Lock()
+	defer c.mx.Unlock()
 	cached, ok := c.data[key]
-	c.mx.RUnlock()
 	if ok {
-		if cached.expiration.IsZero() || cached.expiration.After(time.Now().Add(ttl)) {
+		if !cached.expired() {
 			return ErrKeyExists
 		}
 	}
@@ -69,12 +76,10 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 		expiration = time.Now().Add(ttl)
 	}
 
-	c.mx.Lock()
 	c.data[key] = CacheItem[T]{
 		value:      value,
 		expiration: expiration,
 	}
-	c.mx.Unlock()
 	return nil
 }
 
@@ -85,14 +90,18 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 func (c *Cache[T]) Get(key string) (T, error) {
 	var none T
 
-	_, err := c.Has(key)
-	if err != nil {
-		return none, err
+	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	item, ok := c.data[key]
+	if !ok {
+		return none, ErrKeyNotFound
 	}
 
-	// safe return?
-	c.mx.RLock()
-	defer c.mx.RUnlock()
+	if item.expired() {
+		delete(c.data, key)
+		return none, ErrExpired
+	}
 
 	return c.data[key].value, nil
 }
@@ -102,17 +111,16 @@ func (c *Cache[T]) Get(key string) (T, error) {
 // If key exists, but it's expired, return false and delete key.
 // If key exists and it's not expired, return true
 func (c *Cache[T]) Has(key string) (bool, error) {
-	c.mx.RLock()
-	d, ok := c.data[key]
-	c.mx.RUnlock()
+	c.mx.Lock()
+	defer c.mx.Unlock()
+
+	item, ok := c.data[key]
 	if !ok {
 		return false, ErrKeyNotFound
 	}
 
-	if !d.expiration.IsZero() && d.expiration.Before(time.Now()) {
-		c.mx.Lock()
+	if item.expired() {
 		delete(c.data, key)
-		c.mx.Unlock()
 		return false, ErrExpired
 	}
 
@@ -142,10 +150,9 @@ func (c *Cache[T]) Clear() error {
 
 // Cleanup deletes expired keys from cache
 func (c *Cache[T]) Cleanup() {
-	now := time.Now()
 	c.mx.Lock()
 	for k, v := range c.data {
-		if !v.expiration.IsZero() && v.expiration.Before(now) {
+		if v.expired() {
 			delete(c.data, k)
 		}
 	}

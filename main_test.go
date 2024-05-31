@@ -2,6 +2,7 @@ package mcache
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	testItems := []testItem{
 		{"key0", "value0", time.Duration(0)},
 		{"key1", "value1", time.Second * 1},
+		{"key11", "value11", time.Second * 1},
 		{"key2", "value2", time.Second * 20},
 		{"key3", "value3", time.Second * 30},
 		{"key4", "value4", time.Second * 40},
@@ -55,12 +57,17 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	time.Sleep(time.Second * 2)
 
-	has, err := c.Has(testItems[1].key)
+	item, err := c.Get(testItems[1].key)
+	assert.Error(t, err)
+	assert.ErrorIs(t, ErrExpired, err)
+	assert.Empty(t, item)
+
+	has, err := c.Has(testItems[2].key)
 	assert.Error(t, err)
 	assert.ErrorIs(t, ErrExpired, err)
 	assert.False(t, has)
 
-	testItems = append(testItems[2:], testItems[0])
+	testItems = append(testItems[3:], testItems[0])
 	for _, item := range testItems {
 		err := c.Del(item.key)
 		assert.NoError(t, err)
@@ -144,6 +151,24 @@ func TestConcurrentSetAndGet(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		<-done
 	}
+}
+
+// catching the situation when the key is deleted before the value is retrieved
+func TestConcurrentSetAndDel(t *testing.T) {
+	cache := NewCache[string]()
+
+	var cnt atomic.Int32
+	for i := 0; i < 1000; i++ {
+		cache.Set("key", "will be deleted", 0)
+		go func() {
+			v, err := cache.Get("key")
+			if err == nil && v == "" { // key was deleted before value was retrieved
+				cnt.Add(1)
+			}
+		}()
+		cache.Del("key")
+	}
+	assert.Equal(t, int32(0), cnt.Load(), "key was deleted before value was retrieved")
 }
 
 // TestWithCleanup tests that the cleanup goroutine is working
