@@ -29,8 +29,9 @@ func (cacheItem CacheItem[T]) expired() bool {
 // Cache is a struct for cache
 type Cache[T any] struct {
 	data map[string]CacheItem[T]
-	mx   sync.RWMutex
 }
+
+var mx sync.RWMutex
 
 // Cacher is an interface for cache
 type Cacher[T any] interface {
@@ -61,8 +62,8 @@ func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 // If key doesn't exist, set new value and return nil.
 // If ttl is 0, set value without expiration
 func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	mx.Lock()
+	defer mx.Unlock()
 	cached, ok := c.data[key]
 	if ok {
 		if !cached.expired() {
@@ -90,8 +91,8 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 func (c *Cache[T]) Get(key string) (T, error) {
 	var none T
 
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	mx.Lock()
+	defer mx.Unlock()
 
 	item, ok := c.data[key]
 	if !ok {
@@ -111,8 +112,8 @@ func (c *Cache[T]) Get(key string) (T, error) {
 // If key exists, but it's expired, return false and delete key.
 // If key exists and it's not expired, return true
 func (c *Cache[T]) Has(key string) (bool, error) {
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	mx.Lock()
+	defer mx.Unlock()
 
 	item, ok := c.data[key]
 	if !ok {
@@ -134,29 +135,33 @@ func (c *Cache[T]) Del(key string) error {
 		return err
 	}
 
-	c.mx.Lock()
+	// parallel goroutine can delete key right here
+	// or even perform Clear() operation
+	// but it doen't matter
+
+	mx.Lock()
 	delete(c.data, key)
-	c.mx.Unlock()
+	mx.Unlock()
 	return nil
 }
 
 // Clears cache by replacing it with a clean one
 func (c *Cache[T]) Clear() error {
-	c.mx.Lock()
+	mx.Lock()
 	c.data = make(map[string]CacheItem[T])
-	c.mx.Unlock()
+	mx.Unlock()
 	return nil
 }
 
 // Cleanup deletes expired keys from cache
 func (c *Cache[T]) Cleanup() {
-	c.mx.Lock()
+	mx.Lock()
 	for k, v := range c.data {
 		if v.expired() {
 			delete(c.data, k)
 		}
 	}
-	c.mx.Unlock()
+	mx.Unlock()
 }
 
 // WithCleanup is a functional option for setting interval to run Cleanup goroutine

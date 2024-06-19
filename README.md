@@ -143,7 +143,7 @@ It will basically run a `Cleanup` method in a goroutine with a time interval.
 100% test coverage:
 
 ```shell
-$ go test -cover -race .
+$ go test -cover -race -cpu 24 .
 
 ok      github.com/parMaster/mcache     8.239s  coverage: 100.0% of statements
 ```
