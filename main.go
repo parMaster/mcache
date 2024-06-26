@@ -1,5 +1,5 @@
 // Package provides simple, fast, thread-safe in-memory cache with by-key TTL expiration.
-// Supporting generic types.
+// Supporting generic value types.
 package mcache
 
 import (
@@ -23,7 +23,8 @@ type CacheItem[T any] struct {
 
 // Cache is a struct for cache.
 type Cache[T any] struct {
-	data map[string]CacheItem[T]
+	initialSize int
+	data        map[string]*CacheItem[T]
 	sync.RWMutex
 }
 
@@ -40,7 +41,7 @@ type Cacher[T any] interface {
 // NewCache is a constructor for Cache.
 func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 	c := &Cache[T]{
-		data: make(map[string]CacheItem[T]),
+		data: make(map[string]*CacheItem[T]),
 	}
 
 	for _, option := range options {
@@ -79,7 +80,7 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 		expiration = time.Now().Add(ttl)
 	}
 
-	c.data[key] = CacheItem[T]{
+	c.data[key] = &CacheItem[T]{
 		value:      value,
 		expiration: expiration,
 	}
@@ -150,20 +151,22 @@ func (c *Cache[T]) Del(key string) error {
 // Clears cache by replacing it with a clean one.
 func (c *Cache[T]) Clear() error {
 	c.Lock()
-	c.data = make(map[string]CacheItem[T])
+	c.data = make(map[string]*CacheItem[T], c.initialSize)
 	c.Unlock()
 	return nil
 }
 
-// Cleanup deletes expired keys from cache.
+// Cleanup deletes expired keys from cache by copying non-expired keys to a new map.
 func (c *Cache[T]) Cleanup() {
 	c.Lock()
+	defer c.Unlock()
+	data := make(map[string]*CacheItem[T], c.initialSize)
 	for k, v := range c.data {
-		if v.expired() {
-			delete(c.data, k)
+		if !v.expired() {
+			data[k] = v
 		}
 	}
-	c.Unlock()
+	c.data = data
 }
 
 // WithCleanup is a functional option for setting interval to run Cleanup goroutine.
@@ -175,5 +178,14 @@ func WithCleanup[T any](ttl time.Duration) func(*Cache[T]) {
 				time.Sleep(ttl)
 			}
 		}()
+	}
+}
+
+// WithSize is a functional option for setting cache initial size. So it won't grow dynamically,
+// go will allocate appropriate number of buckets.
+func WithSize[T any](size int) func(*Cache[T]) {
+	return func(c *Cache[T]) {
+		c.data = make(map[string]*CacheItem[T], size)
+		c.initialSize = size
 	}
 }

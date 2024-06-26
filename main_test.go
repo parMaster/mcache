@@ -2,6 +2,10 @@ package mcache
 
 import (
 	"fmt"
+	"log"
+	"runtime"
+	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -122,10 +126,12 @@ func TestConcurrentSetAndGet(t *testing.T) {
 
 	// Start multiple goroutines to concurrently set and get values
 	numGoroutines := 10000
-	done := make(chan bool)
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func(index int) {
+			defer wg.Done()
 			key := fmt.Sprintf("key-%d", index)
 			value := fmt.Sprintf("value-%d", index)
 
@@ -142,15 +148,10 @@ func TestConcurrentSetAndGet(t *testing.T) {
 			if result != value {
 				t.Errorf("Expected value %s for key %s, but got %s", value, key, result)
 			}
-
-			done <- true
 		}(i)
 	}
 
-	// Wait for all goroutines to finish
-	for i := 0; i < numGoroutines; i++ {
-		<-done
-	}
+	wg.Wait()
 }
 
 // catching the situation when the key is deleted before the value is retrieved
@@ -188,6 +189,59 @@ func TestWithCleanup(t *testing.T) {
 	_, err = cache.Get("key")
 	if err == nil {
 		t.Errorf("Expected error getting value for key, but got nil")
+	}
+}
+
+func getAlloc() uint64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.Alloc
+}
+
+func printAlloc(message string) {
+	log.Printf("%s %d KB\n", message, getAlloc()/1024)
+}
+
+func TestWithSize(t *testing.T) {
+	size := 10_000
+	printAlloc("Before")
+	cache := NewCache(WithSize[string](size))
+	memBefore := getAlloc()
+	for iter := 0; iter < 10; iter++ {
+		printAlloc("After NewCache")
+
+		for i := 0; i < size; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			value := fmt.Sprintf("value-%d", i)
+
+			err := cache.Set(key, value, time.Second)
+			assert.NoError(t, err)
+		}
+		printAlloc("After Set " + strconv.Itoa(size) + " entries")
+
+		cache.Cleanup()
+		printAlloc("After Cleanup")
+
+		// Check that the value has been deleted
+		_, err := cache.Get("key_1")
+		assert.Error(t, err, "Expected the key to be deleted")
+		time.Sleep(time.Second)
+	}
+	runtime.GC() // force GC to clean up the cache, make sure it's not leaking
+	printAlloc("After")
+	memAfter := getAlloc()
+	assert.Less(t, memAfter, memBefore*2, "Memory usage should not grow more than twice")
+}
+
+func TestThreadSafeCleanup(t *testing.T) {
+	cache := NewCache[string]()
+	for i := 0; i < 100; i++ {
+		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(10)*time.Millisecond)
+		go cache.Cleanup()
+		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(20)*time.Millisecond)
+		go cache.Cleanup()
+		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(30)*time.Millisecond)
+		go cache.Cleanup()
 	}
 }
 
