@@ -11,6 +11,7 @@
 - Delete key-value pairs
 - Clear the entire cache
 - Cleanup expired key-value pairs
+- Generic type support
 
 ## Installation
 
