@@ -117,6 +117,75 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func Test_DelPrefix(t *testing.T) {
+	cache := NewCache[int]()
+
+	cache.Set("key1", 1, 0)
+	for i := range [10]struct{}{} {
+		cache.Set(fmt.Sprintf("user_%d", i), i, 0)
+	}
+
+	assert.Equal(t, 11, len(cache.data))
+
+	deleted := cache.DelPrefix("user_")
+	assert.Equal(t, 10, deleted)
+	assert.Equal(t, 1, len(cache.data))
+
+	deleted = cache.DelPrefix("user_")
+	assert.Equal(t, 0, deleted)
+
+	user, err := cache.Get("user_0")
+	assert.Error(t, err)
+	assert.Empty(t, user)
+
+	key1, err := cache.Get("key1")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, key1)
+
+	emptyCache := NewCache[int]()
+	deleted = emptyCache.DelPrefix("user_")
+	assert.Equal(t, 0, deleted)
+}
+
+func Test_DelPrefixAltMatch(t *testing.T) {
+	cache := NewCache[int]()
+
+	cache.Set("key1", 1, 0)
+	for i := range [10]struct{}{} {
+		cache.Set(fmt.Sprintf("user_%d", i), i, 0)
+	}
+
+	assert.Equal(t, 11, len(cache.data))
+
+	deleted := cache.DelPrefixAltMatch("user_")
+	assert.Equal(t, 10, deleted)
+	assert.Equal(t, 1, len(cache.data))
+
+	deleted = cache.DelPrefixAltMatch("user_")
+	assert.Equal(t, 0, deleted)
+
+	user, err := cache.Get("user_0")
+	assert.Error(t, err)
+	assert.Empty(t, user)
+
+	key1, err := cache.Get("key1")
+	assert.NoError(t, err)
+	assert.Equal(t, 1, key1)
+
+	emptyCache := NewCache[int]()
+	deleted = emptyCache.DelPrefixAltMatch("user_")
+	assert.Equal(t, 0, deleted)
+}
+
+func TestDelWithConcurrentCleanup(t *testing.T) {
+	m := map[string]int{}
+	delete(m, "key")
+	m = make(map[string]int)
+	delete(m, "key")
+	var mnil map[string]int
+	delete(mnil, "key")
+}
+
 func TestConcurrentSetAndGet(t *testing.T) {
 	cache := NewCache[string]()
 

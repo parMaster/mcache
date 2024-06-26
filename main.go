@@ -4,6 +4,7 @@ package mcache
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +34,7 @@ type Cacher[T any] interface {
 	Get(key string) (T, error)
 	Has(key string) (bool, error)
 	Del(key string) error
+	DelPrefix(prefix string) int
 	Cleanup()
 	Clear() error
 }
@@ -145,6 +147,40 @@ func (c *Cache[T]) Del(key string) error {
 	delete(c.data, key)
 	c.Unlock()
 	return nil
+}
+
+// DelPrefix deletes a key-value pairs with specified prefix in key.
+// Returns number of deleted keys.
+func (c *Cache[T]) DelPrefix(prefix string) int {
+	c.Lock()
+	defer c.Unlock()
+
+	deleted := 0
+	for k := range c.data {
+		if strings.HasPrefix(k, prefix) {
+			deleted++
+			delete(c.data, k)
+		}
+	}
+
+	return deleted
+}
+
+// DelPrefixAltMatch deletes a key-value pairs with specified prefix in key.
+// Benchmarking faster matching and avoiding strings package import.
+func (c *Cache[T]) DelPrefixAltMatch(prefix string) int {
+	c.Lock()
+	defer c.Unlock()
+
+	deleted := 0
+	for k := range c.data {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			deleted++
+			delete(c.data, k)
+		}
+	}
+
+	return deleted
 }
 
 // Clears cache by replacing it with a clean one.

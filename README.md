@@ -54,6 +54,7 @@ type Cacher[T any] interface {
 	Get(key string) (T, error)
 	Has(key string) (bool, error)
 	Del(key string) error
+	DelPrefix(prefix string) int
 	Cleanup()
 	Clear() error
 }
@@ -117,7 +118,7 @@ if exists {
 
 If the key exists but is expired, an error `mcache.ErrExpired` will be returned, and the key-value pair will be deleted.
 
-### Delete
+### Del
 
 Delete a key-value pair from the cache:
 
@@ -128,15 +129,23 @@ if err != nil {
 }
 ```
 
+### DelPrefix
+
+Delete all key-value pairs with a specific prefix from the cache:
+
+```go
+count := cache.DelPrefix("prefix")
+```
+
+It will return the number of key-value pairs deleted.
+The prefix approach was chosen to avoid complicating the API, like adding some kind of parameters to Set method to specify the prefix. It's proven to be enough for most use cases.
+
 ### Clear
 
 Clear the entire cache:
 
 ```go
-err := cache.Clear()
-if err != nil {
-    // handle error
-}
+cache.Clear()
 ```
 
 ### Cleanup

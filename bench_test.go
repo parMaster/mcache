@@ -73,3 +73,33 @@ func BenchmarkConcurrentRWD(b *testing.B) {
 	c1.Clear()
 	c2.Clear()
 }
+
+func BenchmarkDelPrefix(b *testing.B) {
+	c := NewCache[int]()
+	for i := range [100000]struct{}{} {
+		c.Set(fmt.Sprintf("user_%d", i), i, 0)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.DelPrefix("user_")
+	}
+	b.StopTimer()
+	c.Clear()
+}
+
+// BenchmarkDelPrefix-4           	28590849	        40.37 ns/op	       0 B/op	       0 allocs/op
+// BenchmarkDelPrefixAltMatch-4   	29643408	        40.19 ns/op	       0 B/op	       0 allocs/op
+func BenchmarkDelPrefixAltMatch(b *testing.B) {
+	c := NewCache[int]()
+	for i := range [100000]struct{}{} {
+		c.Set(fmt.Sprintf("user_%d", i), i, 0)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.DelPrefixAltMatch("user_")
+	}
+	b.StopTimer()
+	c.Clear()
+}
