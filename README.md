@@ -138,7 +138,7 @@ count := cache.DelPrefix("prefix")
 ```
 
 It will return the number of key-value pairs deleted.
-The prefix approach was chosen to avoid complicating the API, like adding some kind of parameters to Set method to specify the prefix. It's proven to be enough for most use cases.
+The prefix (instead of _tags_) approach was chosen to avoid complicating the API, like adding some kind of parameters to Set method to specify the tag. It's proven to be enough for most use cases.
 
 ### Clear
 
