@@ -27,8 +27,8 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	testItems := []testItem{
 		{"key0", "value0", time.Duration(0)},
-		{"key1", "value1", time.Second * 1},
-		{"key11", "value11", time.Second * 1},
+		{"key1", "value1", time.Millisecond * 100},
+		{"key11", "value11", time.Millisecond * 100},
 		{"key2", "value2", time.Second * 20},
 		{"key3", "value3", time.Second * 30},
 		{"key4", "value4", time.Second * 40},
@@ -59,7 +59,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		assert.True(t, has)
 	}
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(200 * time.Millisecond)
 
 	item, err := c.Get(testItems[1].key)
 	assert.Error(t, err)
@@ -84,9 +84,9 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		assert.ErrorIs(t, ErrKeyNotFound, err)
 	}
 
-	c.Set("key", "value", time.Second*1)
-	time.Sleep(time.Second * 2)
-	err = c.Set("key", "newvalue", time.Second*1)
+	c.Set("key", "value", 100*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	err = c.Set("key", "newvalue", 100*time.Millisecond)
 	assert.NoError(t, err)
 
 	// old value should be rewritten
@@ -98,15 +98,15 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	if err != nil {
 		assert.ErrorIs(t, ErrKeyExists, err)
 	}
-	time.Sleep(time.Second * 2)
-	err = c.Set("key", "even newer value", time.Second*1)
+	time.Sleep(200 * time.Millisecond)
+	err = c.Set("key", "even newer value", 100*time.Millisecond)
 	// key should be silently rewritten
 	assert.NoError(t, err)
 	value, err = c.Get("key")
 	assert.NoError(t, err)
 	assert.Equal(t, "even newer value", value)
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(200 * time.Millisecond)
 	c.Cleanup()
 	// key should be deleted
 	has, err = c.Has("key")
@@ -174,22 +174,17 @@ func TestConcurrentSetAndDel(t *testing.T) {
 
 // TestWithCleanup tests that the cleanup goroutine is working
 func TestWithCleanup(t *testing.T) {
-	cache := NewCache(WithCleanup[string](time.Second * 1))
+	cache := NewCache(WithCleanup[string](time.Millisecond * 100))
 
 	// Set a value with a TTL of 1 second
 	err := cache.Set("key", "value", 1)
-	if err != nil {
-		t.Errorf("Error setting value for key: %s", err)
-	}
+	assert.NoError(t, err, "Expected no error setting value for key")
 
-	// Wait for 2 seconds
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Millisecond * 200)
 
-	// Check that the value has been deleted
+	// Check that the value expired
 	_, err = cache.Get("key")
-	if err == nil {
-		t.Errorf("Expected error getting value for key, but got nil")
-	}
+	assert.Error(t, err, "Expected the key to expire and be deleted")
 }
 
 func getAlloc() uint64 {
@@ -202,6 +197,7 @@ func printAlloc(message string) {
 	log.Printf("%s %d KB\n", message, getAlloc()/1024)
 }
 
+// TestWithSize tests that the memory doesn't leak after Cleanup
 func TestWithSize(t *testing.T) {
 	size := 10_000
 	printAlloc("Before")
@@ -214,7 +210,7 @@ func TestWithSize(t *testing.T) {
 			key := fmt.Sprintf("key-%d", i)
 			value := fmt.Sprintf("value-%d", i)
 
-			err := cache.Set(key, value, time.Second)
+			err := cache.Set(key, value, 100*time.Millisecond)
 			assert.NoError(t, err)
 		}
 		printAlloc("After Set " + strconv.Itoa(size) + " entries")
@@ -225,7 +221,7 @@ func TestWithSize(t *testing.T) {
 		// Check that the value has been deleted
 		_, err := cache.Get("key_1")
 		assert.Error(t, err, "Expected the key to be deleted")
-		time.Sleep(time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 	runtime.GC() // force GC to clean up the cache, make sure it's not leaking
 	printAlloc("After")
@@ -233,6 +229,7 @@ func TestWithSize(t *testing.T) {
 	assert.Less(t, memAfter, memBefore*2, "Memory usage should not grow more than twice")
 }
 
+// TestThreadSafeCleanup tests that the cleanup goroutine is thread-safe
 func TestThreadSafeCleanup(t *testing.T) {
 	cache := NewCache[string]()
 	for i := 0; i < 100; i++ {
@@ -242,6 +239,37 @@ func TestThreadSafeCleanup(t *testing.T) {
 		go cache.Cleanup()
 		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(30)*time.Millisecond)
 		go cache.Cleanup()
+	}
+}
+
+// verify that after the Cleanup, the unexpired keys are moved with the right values
+func TestValuesAfterCleanup(t *testing.T) {
+	cache := NewCache[string]()
+	for i := 0; i < 10; i++ {
+		key := "key_" + strconv.Itoa(i)
+		val := "value_" + strconv.Itoa(i)
+		cache.Set(key, val, time.Second)
+	}
+	for i := 0; i < 10; i++ {
+		key := "key_expired_" + strconv.Itoa(i)
+		val := "value_expired_" + strconv.Itoa(i)
+		cache.Set(key, val, time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+	cache.Cleanup()
+	for i := 0; i < 10; i++ {
+		key := "key_" + strconv.Itoa(i)
+		val := "value_" + strconv.Itoa(i)
+		movedVal, err := cache.Get(key)
+		assert.NoError(t, err)
+		assert.Equal(t, val, movedVal)
+	}
+	var emptyVal string
+	for i := 0; i < 10; i++ {
+		key := "key_expired_" + strconv.Itoa(i)
+		movedVal, err := cache.Get(key)
+		assert.Error(t, err)
+		assert.Equal(t, emptyVal, movedVal)
 	}
 }
 
