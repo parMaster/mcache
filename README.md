@@ -50,7 +50,7 @@ See the [examples](https://github.com/parMaster/mcache/tree/main/examples) direc
 The `Cacher` interface is used to define the cache operations:
 ```go
 type Cacher[T any] interface {
-	Set(key string, value T, ttl time.Duration) error
+	Set(key string, value T, ttl time.Duration) bool
 	Get(key string) (T, error)
 	Has(key string) (bool, error)
 	Del(key string) error
@@ -70,15 +70,12 @@ if err != nil {
 }
 ```
 
-If the key already exists and is not expired, an error `mcache.ErrKeyExists` will be returned. If the key exists but is expired, the value will be updated.
+If the key already exists and is not expired, `false` will be returned. If the key exists but is expired, the value will be updated.
 
 You can also set a key-value pair with an expiration time (in seconds):
 
 ```go
-err := cache.Set("key", "value", time.Minute)
-if err != nil {
-    // handle error
-}
+cache.Set("key", "value", time.Minute)
 ```
 
 The value will automatically expire after the specified duration.
@@ -96,7 +93,7 @@ if err != nil {
 
 If the key does not exist, an error `mcache.ErrKeyNotFound` will be returned. If the key exists but is expired, an error `mcache.ErrExpired` will be returned, and the key-value pair will be deleted.
 
-Either error or value could be checked to determine if the key exists.
+Either error or value could be checked to determine if the key exists. Error is easier to check when the value is a zero value.
 
 ### Has
 

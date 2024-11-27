@@ -11,7 +11,6 @@ import (
 // Errors for cache
 var (
 	ErrKeyNotFound = errors.New("key not found")
-	ErrKeyExists   = errors.New("key already exists")
 	ErrExpired     = errors.New("key expired")
 )
 
@@ -30,7 +29,7 @@ type Cache[T any] struct {
 
 // Cacher is an interface for cache.
 type Cacher[T any] interface {
-	Set(key string, value T, ttl time.Duration) error
+	Set(key string, value T, ttl time.Duration) bool
 	Get(key string) (T, error)
 	Has(key string) (bool, error)
 	Del(key string) error
@@ -64,13 +63,13 @@ func (cacheItem CacheItem[T]) expired() bool {
 // If key already exists, but it's expired, set new value and return nil.
 // If key doesn't exist, set new value and return nil.
 // If ttl is 0, set value without expiration.
-func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
+func (c *Cache[T]) Set(key string, value T, ttl time.Duration) bool {
 	c.Lock()
 	defer c.Unlock()
 	cached, ok := c.data[key]
 	if ok {
 		if !cached.expired() {
-			return ErrKeyExists
+			return false
 		}
 	}
 
@@ -84,7 +83,7 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 		value:      value,
 		expiration: expiration,
 	}
-	return nil
+	return true
 }
 
 // Get is a method for getting value by key.

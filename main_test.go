@@ -39,8 +39,8 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	noSuchKey := "noSuchKey"
 
 	for _, item := range testItems {
-		err := c.Set(item.key, item.value, item.ttl)
-		assert.NoError(t, err)
+		result := c.Set(item.key, item.value, item.ttl)
+		assert.True(t, result)
 	}
 
 	for _, item := range testItems {
@@ -86,22 +86,21 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	c.Set("key", "value", 100*time.Millisecond)
 	time.Sleep(200 * time.Millisecond)
-	err = c.Set("key", "newvalue", 100*time.Millisecond)
-	assert.NoError(t, err)
+	result := c.Set("key", "newvalue", 100*time.Millisecond)
+	assert.True(t, result)
 
 	// old value should be rewritten
 	value, err := c.Get("key")
 	assert.NoError(t, err)
 	assert.Equal(t, "newvalue", value)
 
-	err = c.Set("key", "not a newer value", 1)
-	if err != nil {
-		assert.ErrorIs(t, ErrKeyExists, err)
-	}
+	result = c.Set("key", "not a newer value", 1)
+	assert.False(t, result)
+
 	time.Sleep(200 * time.Millisecond)
-	err = c.Set("key", "even newer value", 100*time.Millisecond)
+	result = c.Set("key", "even newer value", 100*time.Millisecond)
 	// key should be silently rewritten
-	assert.NoError(t, err)
+	assert.True(t, result)
 	value, err = c.Get("key")
 	assert.NoError(t, err)
 	assert.Equal(t, "even newer value", value)
@@ -135,9 +134,9 @@ func TestConcurrentSetAndGet(t *testing.T) {
 			key := fmt.Sprintf("key-%d", index)
 			value := fmt.Sprintf("value-%d", index)
 
-			err := cache.Set(key, value, 0)
-			if err != nil {
-				t.Errorf("Error setting value for key %s: %s", key, err)
+			res := cache.Set(key, value, 0)
+			if res == false {
+				t.Errorf("Error setting value for key %s", key)
 			}
 
 			result, err := cache.Get(key)
@@ -177,13 +176,13 @@ func TestWithCleanup(t *testing.T) {
 	cache := NewCache(WithCleanup[string](time.Millisecond * 100))
 
 	// Set a value with a TTL of 1 second
-	err := cache.Set("key", "value", 1)
-	assert.NoError(t, err, "Expected no error setting value for key")
+	res := cache.Set("key", "value", 1)
+	assert.True(t, res, "Expected successfuly set value for key")
 
 	time.Sleep(time.Millisecond * 200)
 
 	// Check that the value expired
-	_, err = cache.Get("key")
+	_, err := cache.Get("key")
 	assert.Error(t, err, "Expected the key to expire and be deleted")
 }
 
@@ -210,8 +209,8 @@ func TestWithSize(t *testing.T) {
 			key := fmt.Sprintf("key-%d", i)
 			value := fmt.Sprintf("value-%d", i)
 
-			err := cache.Set(key, value, 100*time.Millisecond)
-			assert.NoError(t, err)
+			res := cache.Set(key, value, 100*time.Millisecond)
+			assert.True(t, res, "Expected successfuly set value for key")
 		}
 		printAlloc("After Set " + strconv.Itoa(size) + " entries")
 
