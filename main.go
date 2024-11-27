@@ -59,9 +59,9 @@ func (cacheItem CacheItem[T]) expired() bool {
 }
 
 // Set is a method for setting key-value pair.
-// If key already exists, and it's not expired, return error.
-// If key already exists, but it's expired, set new value and return nil.
-// If key doesn't exist, set new value and return nil.
+// If key already exists, and it's not expired, return false.
+// If key already exists, but it's expired, set new value and return true.
+// If key doesn't exist, set new value and return true.
 // If ttl is 0, set value without expiration.
 func (c *Cache[T]) Set(key string, value T, ttl time.Duration) bool {
 	c.Lock()
