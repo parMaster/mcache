@@ -34,10 +34,11 @@ Create a new cache instance using the `NewCache` constructor, and use it to perf
 ```go
 cache := mcache.NewCache[string]()
 data, err := cache.Get("key")
-if err != nil {
-	data = ExpensiveFunctionCall()
-	cache.Set("key", data, 5*time.Minute) // cache data for 5 minutes
+if err == nil {
+	return data
 }
+data = ExpensiveFunctionCall()
+cache.Set("key", data, 5*time.Minute) // cache data for 5 minutes
 ```
 ## Examples
 
@@ -61,13 +62,10 @@ type Cacher[T any] interface {
 
 ### Set
 
-Set a key-value pair in the cache. The key must be a `string`, value type defined during cache creation, ttl is `time.Duration` type. If ttl is 0, the key-value pair will not expire.:
+Set a key-value pair in the cache. The key must be a `string`, value type defined during cache creation, `ttl` is `time.Duration` type. If `ttl` is 0, the key-value pair will not expire.:
 
 ```go
-err := cache.Set("key", "value", time.Duration(0))
-if err != nil {
-    // handle error
-}
+cache.Set("key", "value", time.Duration(0))
 ```
 
 If the key already exists and is not expired, `false` will be returned. If the key exists but is expired, the value will be updated.
