@@ -1,8 +1,9 @@
 package mcache
 
 import (
+	"context"
 	"fmt"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	_, err := c.Get(noSuchKey)
 	assert.Error(t, err)
-	assert.ErrorIs(t, ErrKeyNotFound, err)
+	assert.ErrorIs(t, err, ErrKeyNotFound)
 
 	for _, item := range testItems {
 		has, err := c.Has(item.key)
@@ -59,12 +60,12 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	item, err := c.Get(testItems[1].key)
 	assert.Error(t, err)
-	assert.ErrorIs(t, ErrExpired, err)
+	assert.ErrorIs(t, err, ErrExpired)
 	assert.Empty(t, item)
 
 	has, err := c.Has(testItems[2].key)
 	assert.Error(t, err)
-	assert.ErrorIs(t, ErrExpired, err)
+	assert.ErrorIs(t, err, ErrExpired)
 	assert.False(t, has)
 
 	testItems = append(testItems[3:], testItems[0])
@@ -77,7 +78,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		has, err := c.Has(item.key)
 		assert.False(t, has)
 		assert.Error(t, err)
-		assert.ErrorIs(t, ErrKeyNotFound, err)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
 	}
 
 	c.Set("key", "value", time.Second*1)
@@ -92,7 +93,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	err = c.Set("key", "not a newer value", 1)
 	if err != nil {
-		assert.ErrorIs(t, ErrKeyExists, err)
+		assert.ErrorIs(t, err, ErrKeyExists)
 	}
 	time.Sleep(time.Second * 2)
 	err = c.Set("key", "even newer value", time.Second*1)
@@ -153,42 +154,116 @@ func TestConcurrentSetAndGet(t *testing.T) {
 	}
 }
 
-// catching the situation when the key is deleted before the value is retrieved
+// TestConcurrentSetAndDel verifies that when Get succeeds, it never returns
+// a zero value — ensuring the value is always consistent with what was Set.
 func TestConcurrentSetAndDel(t *testing.T) {
 	cache := NewCache[string]()
+	var wg sync.WaitGroup
 
-	var cnt atomic.Int32
 	for i := 0; i < 1000; i++ {
-		cache.Set("key", "will be deleted", 0)
+		cache.Clear()
+		if err := cache.Set("key", "will be deleted", 0); err != nil {
+			t.Fatalf("Set failed: %v", err)
+		}
+
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			v, err := cache.Get("key")
-			if err == nil && v == "" { // key was deleted before value was retrieved
-				cnt.Add(1)
+			if err == nil && v != "will be deleted" {
+				t.Errorf("Get returned wrong value: got %q, want %q", v, "will be deleted")
 			}
 		}()
 		cache.Del("key")
 	}
-	assert.Equal(t, int32(0), cnt.Load(), "key was deleted before value was retrieved")
+	wg.Wait()
 }
 
-// TestWithCleanup tests that the cleanup goroutine is working
 func TestWithCleanup(t *testing.T) {
-	cache := NewCache(WithCleanup[string](time.Second * 1))
+	ctx, cancel := context.WithCancel(context.Background())
 
-	// Set a value with a TTL of 1 second
-	err := cache.Set("key", "value", 1)
+	// Cleanup runs every 50ms, key expires in 10ms
+	cache := NewCache(WithCleanup[string](ctx, time.Millisecond*50))
+
+	err := cache.Set("key", "value", time.Millisecond*10)
 	if err != nil {
-		t.Errorf("Error setting value for key: %s", err)
+		t.Fatalf("Set failed: %v", err)
 	}
 
-	// Wait for 2 seconds
-	time.Sleep(2 * time.Second)
+	// Wait long enough for: expiry (10ms) + cleanup tick (50ms) + margin.
+	// 500ms gives ~10 tick opportunities; keeps the test stable under -race overhead.
+	time.Sleep(time.Millisecond * 500)
 
-	// Check that the value has been deleted
+	// Proactive cleanup deleted the key → ErrKeyNotFound (not ErrExpired from lazy delete)
 	_, err = cache.Get("key")
-	if err == nil {
-		t.Errorf("Expected error getting value for key, but got nil")
+	assert.ErrorIs(t, err, ErrKeyNotFound,
+		"WithCleanup goroutine should have proactively deleted the expired key (ErrKeyNotFound), not lazy-deleted it (ErrExpired)")
+
+	// Cancel the context so the goroutine exits cleanly before the test ends.
+	cancel()
+	time.Sleep(time.Millisecond * 100)
+}
+
+func TestConcurrentReads(t *testing.T) {
+	cache := NewCache[string]()
+	if err := cache.Set("key", "value", time.Hour); err != nil {
+		t.Fatalf("Set failed: %v", err)
 	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			v, err := cache.Get("key")
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if v != "value" {
+				t.Errorf("expected 'value', got %q", v)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestDel_ExpiredKey(t *testing.T) {
+	cache := NewCache[string]()
+	if err := cache.Set("key", "value", time.Millisecond); err != nil {
+		t.Fatalf("Set failed: %v", err)
+	}
+
+	time.Sleep(time.Millisecond * 10)
+
+	err := cache.Del("key")
+	assert.NoError(t, err)
+
+	_, err = cache.Get("key")
+	assert.ErrorIs(t, err, ErrKeyNotFound)
+}
+
+func TestDel_TOCTOU(t *testing.T) {
+	cache := NewCache[string]()
+	var wg sync.WaitGroup
+
+	for i := 0; i < 1000; i++ {
+		cache.Set("key", "original", 0)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cache.Del("key")
+			cache.Set("key", "fresh", 0)
+		}()
+		cache.Del("key")
+		wg.Wait()
+		cache.Clear()
+	}
+}
+
+func TestSet_NegativeTTL(t *testing.T) {
+	cache := NewCache[string]()
+	err := cache.Set("key", "value", -1*time.Second)
+	assert.ErrorIs(t, err, ErrInvalidTTL)
 }
 
 func TestMain(m *testing.M) {

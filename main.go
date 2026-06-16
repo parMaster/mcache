@@ -1,6 +1,7 @@
 package mcache
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ var (
 	ErrKeyNotFound = errors.New("key not found")
 	ErrKeyExists   = errors.New("key already exists")
 	ErrExpired     = errors.New("key expired")
+	ErrInvalidTTL  = errors.New("invalid ttl")
 )
 
 // CacheItem is a struct for cache item
@@ -20,10 +22,7 @@ type CacheItem[T any] struct {
 }
 
 func (cacheItem CacheItem[T]) expired() bool {
-	if !cacheItem.expiration.IsZero() && cacheItem.expiration.Before(time.Now()) {
-		return true
-	}
-	return false
+	return !cacheItem.expiration.IsZero() && cacheItem.expiration.Before(time.Now())
 }
 
 // Cache is a struct for cache
@@ -61,6 +60,9 @@ func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 // If key doesn't exist, set new value and return nil.
 // If ttl is 0, set value without expiration
 func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
+	if ttl < 0 {
+		return ErrInvalidTTL
+	}
 	c.mx.Lock()
 	defer c.mx.Unlock()
 	cached, ok := c.data[key]
@@ -72,7 +74,7 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 
 	var expiration time.Time
 
-	if ttl > time.Duration(0) {
+	if ttl > 0 {
 		expiration = time.Now().Add(ttl)
 	}
 
@@ -83,60 +85,77 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 	return nil
 }
 
-// Get is a method for getting value by key.
-// If key doesn't exist, return error.
-// If key exists, but it's expired, delete key, return zero value and error.
-// If key exists and it's not expired, return value
+// Get returns the value for key.
+// Returns ErrKeyNotFound if key does not exist.
+// Returns ErrExpired and deletes the key if it has expired.
 func (c *Cache[T]) Get(key string) (T, error) {
 	var none T
 
-	c.mx.Lock()
-	defer c.mx.Unlock()
-
+	c.mx.RLock()
 	item, ok := c.data[key]
+	c.mx.RUnlock()
+
 	if !ok {
 		return none, ErrKeyNotFound
 	}
+	if !item.expired() {
+		return item.value, nil
+	}
 
+	// Expired path: upgrade to write lock for deletion.
+	// Re-check under write lock — another goroutine may have replaced the key.
+	c.mx.Lock()
+	defer c.mx.Unlock()
+	item, ok = c.data[key]
+	if !ok {
+		return none, ErrKeyNotFound
+	}
 	if item.expired() {
 		delete(c.data, key)
 		return none, ErrExpired
 	}
-
-	return c.data[key].value, nil
+	return item.value, nil
 }
 
-// Has checks if key exists and if it's expired.
-// If key doesn't exist, return false.
-// If key exists, but it's expired, return false and delete key.
-// If key exists and it's not expired, return true
+// Has checks if key exists and is not expired.
+// Returns ErrKeyNotFound if key does not exist.
+// Returns ErrExpired and deletes the key if it has expired.
 func (c *Cache[T]) Has(key string) (bool, error) {
-	c.mx.Lock()
-	defer c.mx.Unlock()
-
+	c.mx.RLock()
 	item, ok := c.data[key]
+	c.mx.RUnlock()
+
 	if !ok {
 		return false, ErrKeyNotFound
 	}
+	if !item.expired() {
+		return true, nil
+	}
 
+	c.mx.Lock()
+	defer c.mx.Unlock()
+	item, ok = c.data[key]
+	if !ok {
+		return false, ErrKeyNotFound
+	}
 	if item.expired() {
 		delete(c.data, key)
 		return false, ErrExpired
 	}
-
 	return true, nil
 }
 
-// Del deletes a key-value pair
+// Del deletes a key-value pair.
+// Returns ErrKeyNotFound if the key does not exist.
+// Expired keys are deleted and nil is returned — the key is gone either way.
 func (c *Cache[T]) Del(key string) error {
-	_, err := c.Has(key)
-	if err != nil {
-		return err
-	}
-
 	c.mx.Lock()
+	defer c.mx.Unlock()
+	_, ok := c.data[key]
+	if !ok {
+		return ErrKeyNotFound
+	}
 	delete(c.data, key)
-	c.mx.Unlock()
 	return nil
 }
 
@@ -159,13 +178,20 @@ func (c *Cache[T]) Cleanup() {
 	c.mx.Unlock()
 }
 
-// WithCleanup is a functional option for setting interval to run Cleanup goroutine
-func WithCleanup[T any](ttl time.Duration) func(*Cache[T]) {
+// WithCleanup is a functional option that starts a background goroutine to
+// periodically delete expired keys. The goroutine stops when ctx is cancelled.
+func WithCleanup[T any](ctx context.Context, interval time.Duration) func(*Cache[T]) {
 	return func(c *Cache[T]) {
+		ticker := time.NewTicker(interval)
 		go func() {
+			defer ticker.Stop()
 			for {
-				c.Cleanup()
-				time.Sleep(ttl)
+				select {
+				case <-ticker.C:
+					c.Cleanup()
+				case <-ctx.Done():
+					return
+				}
 			}
 		}()
 	}
