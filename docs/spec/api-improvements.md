@@ -2,6 +2,11 @@
 
 Captured after code review session (2026-06-16). Items ranked by impact.
 
+**Plan:** implement all items, then cut a v2 tag/release with a single major
+version bump. `WithCleanup` already introduced a breaking change (added
+`context.Context` parameter) in the current codebase, so v2 will consolidate
+all breaking changes into one migration.
+
 ---
 
 ## 1. Force-overwrite / Update operation (High impact)
