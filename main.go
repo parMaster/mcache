@@ -1,3 +1,5 @@
+// Package provides simple, fast, thread-safe in-memory cache with by-key TTL expiration.
+// Supporting generic value types.
 package mcache
 
 import (
@@ -10,12 +12,10 @@ import (
 // Errors for cache
 var (
 	ErrKeyNotFound = errors.New("key not found")
-	ErrKeyExists   = errors.New("key already exists")
 	ErrExpired     = errors.New("key expired")
-	ErrInvalidTTL  = errors.New("invalid ttl")
 )
 
-// CacheItem is a struct for cache item
+// CacheItem is a struct for cache item.
 type CacheItem[T any] struct {
 	value      T
 	expiration time.Time
@@ -25,15 +25,16 @@ func (cacheItem CacheItem[T]) expired() bool {
 	return !cacheItem.expiration.IsZero() && cacheItem.expiration.Before(time.Now())
 }
 
-// Cache is a struct for cache
+// Cache is a struct for cache.
 type Cache[T any] struct {
-	data map[string]CacheItem[T]
-	mx   sync.RWMutex
+	initialSize int
+	data        map[string]*CacheItem[T]
+	sync.RWMutex
 }
 
-// Cacher is an interface for cache
+// Cacher is an interface for cache.
 type Cacher[T any] interface {
-	Set(key string, value T, ttl time.Duration) error
+	Set(key string, value T, ttl time.Duration) bool
 	Get(key string) (T, error)
 	Has(key string) (bool, error)
 	Del(key string) error
@@ -41,48 +42,44 @@ type Cacher[T any] interface {
 	Clear() error
 }
 
-// NewCache is a constructor for Cache
+// NewCache is a constructor for Cache.
 func NewCache[T any](options ...func(*Cache[T])) *Cache[T] {
 	c := &Cache[T]{
-		data: make(map[string]CacheItem[T]),
+		data: make(map[string]*CacheItem[T]),
 	}
-
 	for _, option := range options {
 		option(c)
 	}
-
 	return c
 }
 
 // Set is a method for setting key-value pair.
-// If key already exists, and it's not expired, return error.
-// If key already exists, but it's expired, set new value and return nil.
-// If key doesn't exist, set new value and return nil.
-// If ttl is 0, set value without expiration
-func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
+// If key already exists, and it's not expired, return false.
+// If key already exists, but it's expired, set new value and return true.
+// If key doesn't exist, set new value and return true.
+// If ttl is 0, set value without expiration.
+// If ttl is negative, return false.
+func (c *Cache[T]) Set(key string, value T, ttl time.Duration) bool {
 	if ttl < 0 {
-		return ErrInvalidTTL
+		return false
 	}
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	c.Lock()
+	defer c.Unlock()
 	cached, ok := c.data[key]
 	if ok {
 		if !cached.expired() {
-			return ErrKeyExists
+			return false
 		}
 	}
-
 	var expiration time.Time
-
 	if ttl > 0 {
 		expiration = time.Now().Add(ttl)
 	}
-
-	c.data[key] = CacheItem[T]{
+	c.data[key] = &CacheItem[T]{
 		value:      value,
 		expiration: expiration,
 	}
-	return nil
+	return true
 }
 
 // Get returns the value for key.
@@ -91,9 +88,9 @@ func (c *Cache[T]) Set(key string, value T, ttl time.Duration) error {
 func (c *Cache[T]) Get(key string) (T, error) {
 	var none T
 
-	c.mx.RLock()
+	c.RLock()
 	item, ok := c.data[key]
-	c.mx.RUnlock()
+	c.RUnlock()
 
 	if !ok {
 		return none, ErrKeyNotFound
@@ -104,8 +101,8 @@ func (c *Cache[T]) Get(key string) (T, error) {
 
 	// Expired path: upgrade to write lock for deletion.
 	// Re-check under write lock — another goroutine may have replaced the key.
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	c.Lock()
+	defer c.Unlock()
 	item, ok = c.data[key]
 	if !ok {
 		return none, ErrKeyNotFound
@@ -121,9 +118,9 @@ func (c *Cache[T]) Get(key string) (T, error) {
 // Returns ErrKeyNotFound if key does not exist.
 // Returns ErrExpired and deletes the key if it has expired.
 func (c *Cache[T]) Has(key string) (bool, error) {
-	c.mx.RLock()
+	c.RLock()
 	item, ok := c.data[key]
-	c.mx.RUnlock()
+	c.RUnlock()
 
 	if !ok {
 		return false, ErrKeyNotFound
@@ -132,8 +129,8 @@ func (c *Cache[T]) Has(key string) (bool, error) {
 		return true, nil
 	}
 
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	c.Lock()
+	defer c.Unlock()
 	item, ok = c.data[key]
 	if !ok {
 		return false, ErrKeyNotFound
@@ -149,8 +146,8 @@ func (c *Cache[T]) Has(key string) (bool, error) {
 // Returns ErrKeyNotFound if the key does not exist.
 // Expired keys are deleted and nil is returned — the key is gone either way.
 func (c *Cache[T]) Del(key string) error {
-	c.mx.Lock()
-	defer c.mx.Unlock()
+	c.Lock()
+	defer c.Unlock()
 	_, ok := c.data[key]
 	if !ok {
 		return ErrKeyNotFound
@@ -159,23 +156,25 @@ func (c *Cache[T]) Del(key string) error {
 	return nil
 }
 
-// Clears cache by replacing it with a clean one
+// Clear replaces the cache with a clean one.
 func (c *Cache[T]) Clear() error {
-	c.mx.Lock()
-	c.data = make(map[string]CacheItem[T])
-	c.mx.Unlock()
+	c.Lock()
+	c.data = make(map[string]*CacheItem[T], c.initialSize)
+	c.Unlock()
 	return nil
 }
 
-// Cleanup deletes expired keys from cache
+// Cleanup deletes expired keys from cache by copying non-expired keys to a new map.
 func (c *Cache[T]) Cleanup() {
-	c.mx.Lock()
+	c.Lock()
+	defer c.Unlock()
+	data := make(map[string]*CacheItem[T], c.initialSize)
 	for k, v := range c.data {
-		if v.expired() {
-			delete(c.data, k)
+		if !v.expired() {
+			data[k] = v
 		}
 	}
-	c.mx.Unlock()
+	c.data = data
 }
 
 // WithCleanup is a functional option that starts a background goroutine to
@@ -194,5 +193,14 @@ func WithCleanup[T any](ctx context.Context, interval time.Duration) func(*Cache
 				}
 			}
 		}()
+	}
+}
+
+// WithSize is a functional option for setting cache initial size. So it won't grow dynamically,
+// go will allocate appropriate number of buckets.
+func WithSize[T any](size int) func(*Cache[T]) {
+	return func(c *Cache[T]) {
+		c.data = make(map[string]*CacheItem[T], size)
+		c.initialSize = size
 	}
 }

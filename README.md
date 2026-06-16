@@ -11,6 +11,7 @@
 - Delete key-value pairs
 - Clear the entire cache
 - Cleanup expired key-value pairs
+- Generic type support
 
 ## Installation
 
@@ -33,36 +34,46 @@ Create a new cache instance using the `NewCache` constructor, and use it to perf
 ```go
 cache := mcache.NewCache[string]()
 data, err := cache.Get("key")
-if err != nil {
-	data = ExpensiveFunctionCall()
-	cache.Set("key", data, 5*time.Minute) // cache data for 5 minutes
+if err == nil {
+	return data
 }
+data = ExpensiveFunctionCall()
+cache.Set("key", data, 5*time.Minute) // cache data for 5 minutes
 ```
 ## Examples
 
 See the [examples](https://github.com/parMaster/mcache/tree/main/examples) directory for more examples.
 
 ## API Reference
-### Set
 
-Set a key-value pair in the cache. The key must be a `string`, value type defined during cache creation, ttl is `time.Duration` type. If ttl is 0, the key-value pair will not expire.:
+### Interface
 
+The `Cacher` interface is used to define the cache operations:
 ```go
-err := cache.Set("key", "value", time.Duration(0))
-if err != nil {
-    // handle error
+type Cacher[T any] interface {
+	Set(key string, value T, ttl time.Duration) bool
+	Get(key string) (T, error)
+	Has(key string) (bool, error)
+	Del(key string) error
+	Cleanup()
+	Clear() error
 }
 ```
 
-If the key already exists and is not expired, an error `mcache.ErrKeyExists` will be returned. If the key exists but is expired, the value will be updated.
+### Set
+
+Set a key-value pair in the cache. The key must be a `string`, value type defined during cache creation, `ttl` is `time.Duration` type. If `ttl` is 0, the key-value pair will not expire.:
+
+```go
+cache.Set("key", "value", time.Duration(0))
+```
+
+If the key already exists and is not expired, `false` will be returned. If the key exists but is expired, the value will be updated.
 
 You can also set a key-value pair with an expiration time (in seconds):
 
 ```go
-err := cache.Set("key", "value", time.Minute)
-if err != nil {
-    // handle error
-}
+cache.Set("key", "value", time.Minute)
 ```
 
 The value will automatically expire after the specified duration.
@@ -80,7 +91,7 @@ if err != nil {
 
 If the key does not exist, an error `mcache.ErrKeyNotFound` will be returned. If the key exists but is expired, an error `mcache.ErrExpired` will be returned, and the key-value pair will be deleted.
 
-Either error or value could be checked to determine if the key exists.
+Either error or value could be checked to determine if the key exists. Error is easier to check when the value is a zero value.
 
 ### Has
 
@@ -143,7 +154,7 @@ It will basically run a `Cleanup` method in a goroutine with a time interval.
 100% test coverage:
 
 ```shell
-$ go test -cover -race .
+$ go test -cover -race -cpu 24 .
 
 ok      github.com/parMaster/mcache     8.239s  coverage: 100.0% of statements
 ```
@@ -155,9 +166,10 @@ goos: darwin
 goarch: amd64
 pkg: github.com/parMaster/mcache
 cpu: Intel(R) Core(TM) i5-5257U CPU @ 2.70GHz
-BenchmarkWrite-4   	 1333594	       772.8 ns/op	     196 B/op	       2 allocs/op
-BenchmarkRead-4    	 2578328	       490.7 ns/op	      15 B/op	       1 allocs/op
-BenchmarkRWD-4     	 1277389	       939.7 ns/op	      47 B/op	       5 allocs/op
+BenchmarkWrite-4           	 1811689	       928.3 ns/op	     279 B/op	       2 allocs/op
+BenchmarkRead-4            	 2925553	       445.8 ns/op	      15 B/op	       1 allocs/op
+BenchmarkRWD-4             	 1351506	       881.6 ns/op	      47 B/op	       5 allocs/op
+BenchmarkConcurrentRWD-4   	  452916	      2766 ns/op	     195 B/op	      16 allocs/op
 PASS
 ok  	github.com/parMaster/mcache	19.769s
 ```

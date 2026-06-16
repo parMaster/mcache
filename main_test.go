@@ -3,6 +3,9 @@ package mcache
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -24,8 +27,8 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 
 	testItems := []testItem{
 		{"key0", "value0", time.Duration(0)},
-		{"key1", "value1", time.Second * 1},
-		{"key11", "value11", time.Second * 1},
+		{"key1", "value1", time.Millisecond * 100},
+		{"key11", "value11", time.Millisecond * 100},
 		{"key2", "value2", time.Second * 20},
 		{"key3", "value3", time.Second * 30},
 		{"key4", "value4", time.Second * 40},
@@ -36,8 +39,8 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 	noSuchKey := "noSuchKey"
 
 	for _, item := range testItems {
-		err := c.Set(item.key, item.value, item.ttl)
-		assert.NoError(t, err)
+		result := c.Set(item.key, item.value, item.ttl)
+		assert.True(t, result)
 	}
 
 	for _, item := range testItems {
@@ -56,7 +59,7 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		assert.True(t, has)
 	}
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(200 * time.Millisecond)
 
 	item, err := c.Get(testItems[1].key)
 	assert.Error(t, err)
@@ -81,29 +84,28 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 		assert.ErrorIs(t, err, ErrKeyNotFound)
 	}
 
-	c.Set("key", "value", time.Second*1)
-	time.Sleep(time.Second * 2)
-	err = c.Set("key", "newvalue", time.Second*1)
-	assert.NoError(t, err)
+	c.Set("key", "value", 100*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	result := c.Set("key", "newvalue", 100*time.Millisecond)
+	assert.True(t, result)
 
 	// old value should be rewritten
 	value, err := c.Get("key")
 	assert.NoError(t, err)
 	assert.Equal(t, "newvalue", value)
 
-	err = c.Set("key", "not a newer value", 1)
-	if err != nil {
-		assert.ErrorIs(t, err, ErrKeyExists)
-	}
-	time.Sleep(time.Second * 2)
-	err = c.Set("key", "even newer value", time.Second*1)
+	result = c.Set("key", "not a newer value", 1)
+	assert.False(t, result)
+
+	time.Sleep(200 * time.Millisecond)
+	result = c.Set("key", "even newer value", 100*time.Millisecond)
 	// key should be silently rewritten
-	assert.NoError(t, err)
+	assert.True(t, result)
 	value, err = c.Get("key")
 	assert.NoError(t, err)
 	assert.Equal(t, "even newer value", value)
 
-	time.Sleep(time.Second * 2)
+	time.Sleep(200 * time.Millisecond)
 	c.Cleanup()
 	// key should be deleted
 	has, err = c.Has("key")
@@ -121,18 +123,19 @@ func Test_SimpleTest_Mcache(t *testing.T) {
 func TestConcurrentSetAndGet(t *testing.T) {
 	cache := NewCache[string]()
 
-	// Start multiple goroutines to concurrently set and get values
 	numGoroutines := 10000
-	done := make(chan bool)
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func(index int) {
+			defer wg.Done()
 			key := fmt.Sprintf("key-%d", index)
 			value := fmt.Sprintf("value-%d", index)
 
-			err := cache.Set(key, value, 0)
-			if err != nil {
-				t.Errorf("Error setting value for key %s: %s", key, err)
+			res := cache.Set(key, value, 0)
+			if !res {
+				t.Errorf("Error setting value for key %s", key)
 			}
 
 			result, err := cache.Get(key)
@@ -143,15 +146,10 @@ func TestConcurrentSetAndGet(t *testing.T) {
 			if result != value {
 				t.Errorf("Expected value %s for key %s, but got %s", value, key, result)
 			}
-
-			done <- true
 		}(i)
 	}
 
-	// Wait for all goroutines to finish
-	for i := 0; i < numGoroutines; i++ {
-		<-done
-	}
+	wg.Wait()
 }
 
 // TestConcurrentSetAndDel verifies that when Get succeeds, it never returns
@@ -162,9 +160,7 @@ func TestConcurrentSetAndDel(t *testing.T) {
 
 	for i := 0; i < 1000; i++ {
 		cache.Clear()
-		if err := cache.Set("key", "will be deleted", 0); err != nil {
-			t.Fatalf("Set failed: %v", err)
-		}
+		cache.Set("key", "will be deleted", 0)
 
 		wg.Add(1)
 		go func() {
@@ -185,9 +181,8 @@ func TestWithCleanup(t *testing.T) {
 	// Cleanup runs every 50ms, key expires in 10ms
 	cache := NewCache(WithCleanup[string](ctx, time.Millisecond*50))
 
-	err := cache.Set("key", "value", time.Millisecond*10)
-	if err != nil {
-		t.Fatalf("Set failed: %v", err)
+	if !cache.Set("key", "value", time.Millisecond*10) {
+		t.Fatalf("Set failed")
 	}
 
 	// Wait long enough for: expiry (10ms) + cleanup tick (50ms) + margin.
@@ -195,19 +190,104 @@ func TestWithCleanup(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	// Proactive cleanup deleted the key → ErrKeyNotFound (not ErrExpired from lazy delete)
-	_, err = cache.Get("key")
+	_, err := cache.Get("key")
 	assert.ErrorIs(t, err, ErrKeyNotFound,
 		"WithCleanup goroutine should have proactively deleted the expired key (ErrKeyNotFound), not lazy-deleted it (ErrExpired)")
 
-	// Cancel the context so the goroutine exits cleanly before the test ends.
 	cancel()
 	time.Sleep(time.Millisecond * 100)
 }
 
+func getAlloc() uint64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.Alloc
+}
+
+func printAlloc(message string) {
+	log.Printf("%s %d KB\n", message, getAlloc()/1024)
+}
+
+// TestWithSize tests that the memory doesn't leak after Cleanup
+func TestWithSize(t *testing.T) {
+	size := 10_000
+	printAlloc("Before")
+	cache := NewCache(WithSize[string](size))
+	memBefore := getAlloc()
+	for iter := 0; iter < 10; iter++ {
+		printAlloc("After NewCache")
+
+		for i := 0; i < size; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			value := fmt.Sprintf("value-%d", i)
+
+			res := cache.Set(key, value, 100*time.Millisecond)
+			assert.True(t, res, "Expected successfuly set value for key")
+		}
+		printAlloc("After Set " + strconv.Itoa(size) + " entries")
+
+		cache.Cleanup()
+		printAlloc("After Cleanup")
+
+		// Check that the value has been deleted
+		_, err := cache.Get("key_1")
+		assert.Error(t, err, "Expected the key to be deleted")
+		time.Sleep(200 * time.Millisecond)
+	}
+	runtime.GC()
+	printAlloc("After")
+	memAfter := getAlloc()
+	assert.Less(t, memAfter, memBefore*2, "Memory usage should not grow more than twice")
+}
+
+// TestThreadSafeCleanup tests that the cleanup goroutine is thread-safe
+func TestThreadSafeCleanup(t *testing.T) {
+	cache := NewCache[string]()
+	for i := 0; i < 100; i++ {
+		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(10)*time.Millisecond)
+		go cache.Cleanup()
+		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(20)*time.Millisecond)
+		go cache.Cleanup()
+		cache.Set("key_"+strconv.Itoa(i), "value", time.Duration(30)*time.Millisecond)
+		go cache.Cleanup()
+	}
+}
+
+// TestValuesAfterCleanup verifies that unexpired keys retain correct values after Cleanup
+func TestValuesAfterCleanup(t *testing.T) {
+	cache := NewCache[string]()
+	for i := 0; i < 10; i++ {
+		key := "key_" + strconv.Itoa(i)
+		val := "value_" + strconv.Itoa(i)
+		cache.Set(key, val, time.Second)
+	}
+	for i := 0; i < 10; i++ {
+		key := "key_expired_" + strconv.Itoa(i)
+		val := "value_expired_" + strconv.Itoa(i)
+		cache.Set(key, val, time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+	cache.Cleanup()
+	for i := 0; i < 10; i++ {
+		key := "key_" + strconv.Itoa(i)
+		val := "value_" + strconv.Itoa(i)
+		movedVal, err := cache.Get(key)
+		assert.NoError(t, err)
+		assert.Equal(t, val, movedVal)
+	}
+	var emptyVal string
+	for i := 0; i < 10; i++ {
+		key := "key_expired_" + strconv.Itoa(i)
+		movedVal, err := cache.Get(key)
+		assert.Error(t, err)
+		assert.Equal(t, emptyVal, movedVal)
+	}
+}
+
 func TestConcurrentReads(t *testing.T) {
 	cache := NewCache[string]()
-	if err := cache.Set("key", "value", time.Hour); err != nil {
-		t.Fatalf("Set failed: %v", err)
+	if !cache.Set("key", "value", time.Hour) {
+		t.Fatalf("Set failed")
 	}
 
 	var wg sync.WaitGroup
@@ -229,8 +309,8 @@ func TestConcurrentReads(t *testing.T) {
 
 func TestDel_ExpiredKey(t *testing.T) {
 	cache := NewCache[string]()
-	if err := cache.Set("key", "value", time.Millisecond); err != nil {
-		t.Fatalf("Set failed: %v", err)
+	if !cache.Set("key", "value", time.Millisecond) {
+		t.Fatalf("Set failed")
 	}
 
 	time.Sleep(time.Millisecond * 10)
@@ -262,11 +342,10 @@ func TestDel_TOCTOU(t *testing.T) {
 
 func TestSet_NegativeTTL(t *testing.T) {
 	cache := NewCache[string]()
-	err := cache.Set("key", "value", -1*time.Second)
-	assert.ErrorIs(t, err, ErrInvalidTTL)
+	result := cache.Set("key", "value", -1*time.Second)
+	assert.False(t, result)
 }
 
 func TestMain(m *testing.M) {
-	// Enable the race detector
 	m.Run()
 }
